@@ -7,34 +7,25 @@ class ActualizadorGitHub:
         self.version_local = version_local
 
     def verificar(self):
-        """Consulta GitHub para ver si hay una versión superior."""
         try:
-            respuesta = requests.get(self.url_control, timeout=10)
-            if respuesta.status_code == 200:
-                datos = respuesta.json()
-                # Accedemos a la clave 'nomina' que definimos en el JSON
-                info = datos.get('nomina', {})
-                version_remota = info.get('version', "0.0.0")
-                url_descarga = info.get('url')
-                
-                # Comparamos versiones (ejemplo: "1.0.1" > "1.0.0")
-                if version_remota > self.version_local:
-                    return True, url_descarga, version_remota
+            r = requests.get(self.url_json, timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                v_remota = data['nomina']['version']
+                url_app = data['nomina']['url']
+                return v_remota > self.version_local, v_remota, url_app
             return False, None, None
-        except Exception as e:
-            print(f"Error al conectar con GitHub: {e}")
+        except:
             return False, None, None
 
-    def descargar(self, url):
-        """Descarga el archivo desde la URL y lo guarda localmente."""
+    def descargar(self, url, destino):
+        """Descarga el archivo bloqueando lo mínimo posible."""
         try:
-            r = requests.get(url, timeout=15)
+            r = requests.get(url, timeout=20)
             if r.status_code == 200:
-                # Lo guardamos con un nombre distinto para no sobreescribir el que está abierto
-                with open("ejecutable_NUEVO.py", 'wb') as f:
+                with open(ruta_destino, 'wb') as f:
                     f.write(r.content)
                 return True
             return False
-        except Exception as e:
-            print(f"Error en la descarga: {e}")
+        except:
             return False

@@ -1,0 +1,7 @@
+{
+  "nomina": {
+    "version": "1.0.1",
+    "url": "https://raw.githubusercontent.com/watchtheblind/CORPOSALUD-CUADROS-REVISION/main/ejecutable.py",
+    "descripcion": "Mejoras en la velocidad de carga y corrección de errores."
+  }
+}

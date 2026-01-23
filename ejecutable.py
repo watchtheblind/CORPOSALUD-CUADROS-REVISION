@@ -150,11 +150,25 @@ class ProcesadorNomina:
         act = ActualizadorGitHub(USUARIO, REPO, VERSION_ESTA_APP)
         hay_update, url, v_nueva = act.verificar()
         if hay_update:
-            if messagebox.askyesno("Actualización disponible", f"Hay una nueva versión ({v_nueva}). ¿Desea descargarla?"):
-                if act.descargar(url):
-                    messagebox.showinfo("Listo", "Se ha descargado 'ejecutable_NUEVO.py'.\nReemplaza tu archivo actual con este.")
-                    root.destroy()
-                    return # Cerramos para que el usuario use el nuevo
+            if messagebox.askyesno("Actualización disponible", f"Se encontró la versión {v_nueva}.\n¿Desea descargarla ahora?"):
+                # Mostramos la interfaz de carga para la descarga
+                loading_update = CargaUI(root, f"Descargando versión {v_nueva}...")
+                
+                # Función interna para el hilo de descarga
+                def proceso_descarga():
+                    exito = act.descargar(url, "ejecutable_NUEVO.py")
+                    loading_update.cerrar() # Cerramos la barrita
+                    
+                    if exito:
+                        messagebox.showinfo("Éxito", "Descarga completada.\nReemplaza el archivo actual por 'ejecutable_NUEVO.py' y vuelve a iniciar.")
+                        root.quit()
+                    else:
+                        messagebox.showerror("Error", "No se pudo descargar la actualización.")
+                
+                import threading
+                threading.Thread(target=proceso_descarga, daemon=True).start()
+                root.mainloop() # Mantiene la barrita moviéndose
+                return # Detiene la ejecución de la app vieja
         ruta_plantilla = self.obtener_ruta("plantilla2.xlsx")
         if not os.path.exists(ruta_plantilla):
             messagebox.showerror("Error", f"No se encontró la plantilla en:\n{ruta_plantilla}")
