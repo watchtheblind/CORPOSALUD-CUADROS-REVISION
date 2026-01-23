@@ -1,0 +1,30 @@
+import tkinter as tk
+from tkinter import messagebox
+from updater import GitHubUpdater
+import os
+
+# CONFIGURACIÓN DE TU APP
+VERSION_ACTUAL = "v1.0.0"
+REPO_USUARIO = "tu_usuario_github"
+REPO_NOMBRE = "tu_repo_nomina"
+
+def iniciar_app():
+    root = tk.Tk()
+    root.withdraw()
+
+    actualizador = GitHubUpdater(REPO_USUARIO, REPO_NOMBRE, VERSION_ACTUAL)
+    
+    # 1. Verificar
+    hay_update, version, url = actualizador.chequear_actualizacion()
+    
+    if hay_update:
+        if messagebox.askyesno("Actualización disponible", f"Hay una nueva versión ({version}). ¿Desea descargarla?"):
+            # Aquí podrías usar tu clase CargaUI de 'utils' para mostrar progreso
+            exito = actualizador.descargar_y_reemplazar(url, "logic_update.py")
+            if exito:
+                messagebox.showinfo("Listo", "Actualización completada. Reinicie la aplicación.")
+                return # Detener ejecución para que el usuario abra la nueva versión
+
+    # 2. Ejecutar la lógica actual
+    print("Iniciando lógica de procesamiento...")
+    # Aquí llamarías a ProcesadorNomina().ejecutar()
