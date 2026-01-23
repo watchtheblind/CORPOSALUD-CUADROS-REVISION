@@ -6,14 +6,14 @@ from openpyxl.formula.translate import Translator
 import os
 import re
 import sys
+import threading
 from datetime import datetime, date
-from utils import ejecutar_tarea_con_carga
-# --- 1. CONFIGURACIÓN DE MAPEO (Principio Abierto/Cerrado) ---
-# Si necesitas añadir más, solo edita esta lista.
-# --- MAPEO MAESTRO DE COLUMNAS ---
-# Estructura: "ID": ["Nombre en Libro Carga", "Nombre en Plantilla"]
+
+# Importamos la herramienta de carga desde tu utils.py
+from utils import ejecutar_tarea_con_carga, CargaUI
+
+# --- 1. CONFIGURACIÓN DE MAPEO ---
 MAPEO_COLUMNAS = {
-    # 1. DATOS PERSONALES Y ADMINISTRATIVOS
     "CEDULA": ["CEDULA", "CEDULA"],
     "SEXO": ["SEXO", "SEXO"],
     "DESC_CARGO": ["DESC. CARGO", "DESC. CARGO"],
@@ -38,8 +38,6 @@ MAPEO_COLUMNAS = {
     "P_ESCAL": ["PORC ESCALAF", "PORC ESCALAF"],
     "HIJOS": ["NRO HIJOS", "NUMERO DE HIJOS"],
     "SUELDO_NORM": ["SUELDO NORMAL", "SUELDO NORMAL"],
-
-    # 2. CONCEPTOS SALARIALES (ASIGNACIONES)
     "C101": ["101 SUELDO Y/O SALARIO", "101 SUELDO Y/O SALARIO"],
     "C117": ["117 DIF. DE SUELDO Y/O SALARIO", "117 DIF. DE SUELDO Y/O SALARIO"],
     "C102": ["102 COMPENSACION POR EVALUACIÓN", "102 COMPENSACION POR EVALUACIÓN"],
@@ -55,8 +53,6 @@ MAPEO_COLUMNAS = {
     "C105_8": ["105.8 PRIMA PROFE. 40%", "105.8 PRIMA PROFE. 40%"],
     "C111_5": ["111.5 COMP. EVAL. 2DO SEM 2023", "111.5 COMP. EVAL. 2DO SEM 2023"],
     "C124_4": ["124.4 DIA ADICIONAL", "124.4 DIA ADICIONAL"],
-
-    # 3. DOMINGOS Y BONOS NOCTURNOS (CON FACTORES)
     "C140_2_16": ["140.2.16 DOMINGO Y FERIADO NOCT", "140.2.16 DOMINGO Y FERIADO NOCT"],
     "F140_2_16": ["FACTOR DOM Y FER NOCT", "FACTOR DOM Y FER NOCT"],
     "C140_2_17": ["140.2.17 DOMINGO Y FERIADO 24H", "140.2.17 DOMINGO Y FERIADO 24H"],
@@ -70,8 +66,6 @@ MAPEO_COLUMNAS = {
     "C143_5": ["143.5 BONO NOCT ADMIN", "143.5 BONO NOCT. 8 H"],
     "C143_3": ["143.3 BONO NOCTURNO MED (6HORAS)", "143.3 BONO NOCTURNO MEDICO (6HORAS)"],
     "C143_4": ["143.4 BONO NOCTURNO MED (8HORAS)", "143.4 BONO NOCTURNO MEDICO (8HORAS)"],
-
-    # 4. PRIMAS, BONOS Y BENEFICIOS
     "C160_17": ["160.17 BONO VACACIONAL", "160.17 BONO VACACIONAL"],
     "C128": ["128 BECAS", "128 BECAS"],
     "C155_3": ["155.3 PRIMA POR HIJOS", "155.3 PRIMA POR HIJOS"],
@@ -83,8 +77,6 @@ MAPEO_COLUMNAS = {
     "C927": ["927 AYUD SERV FUNER", "927 AYUD SERV FUNERARIO"],
     "C135": ["135 BONIF POR MATRIM", "135 BONIF POR MATRIMONIO"],
     "C132": ["132 BONIF POR NAC", "132 BONIF POR NACIMIENTO"],
-
-    # 5. DEDUCCIONES Y TRIBUNALES
     "C178": ["178 DESC PARC X PAGO INDEBID", "178 DESC PARC X PAGO INDEBIDO"],
     "C179": ["179 DESC. DIA(S) NO LABORADO", "179 DESC. DIA(S) NO LABORADO(S)"],
     "C202": ["202 JUZG PRIMER DE MENORES", "202 JUZG PRIMERO DE MENORES"],
@@ -120,17 +112,14 @@ MAPEO_COLUMNAS = {
     "C910": ["910 PENSIÓN ALIMENTACIÓN", "910 PENSIÓN ALIMENTACIÓN"]
 }
 
-# --- 2. CLASE DE PROCESAMIENTO (Principio de Responsabilidad Única) ---
-# --- 2. UTILIDADES DE CONVERSIÓN ---
+# --- 2. UTILIDADES ---
 def convertir_num_fiel(valor):
     if valor is None or valor == "": return None
     if isinstance(valor, (int, float)): return valor
     try:
         s = str(valor).strip()
-        if "," in s and "." not in s:
-            s = s.replace(",", ".")
-        elif "," in s and "." in s:
-            s = s.replace(".", "").replace(",", ".")
+        if "," in s and "." not in s: s = s.replace(",", ".")
+        elif "," in s and "." in s: s = s.replace(".", "").replace(",", ".")
         return float(s)
     except:
         return valor
@@ -151,7 +140,21 @@ class ProcesadorNomina:
         root = tk.Tk()
         root.withdraw()
         root.attributes("-topmost", True)
+        # DATOS DE TU REPO
+        VERSION_ESTA_APP = "1.0.0" 
+        USUARIO = "watchtheblind"
+        REPO = "CORPOSALUD-CUADROS-REVISION"
 
+        # Llamamos al detective
+        from actualizador import ActualizadorGitHub
+        act = ActualizadorGitHub(USUARIO, REPO, VERSION_ESTA_APP)
+        hay_update, url, v_nueva = act.verificar()
+        if hay_update:
+            if messagebox.askyesno("Actualización disponible", f"Hay una nueva versión ({v_nueva}). ¿Desea descargarla?"):
+                if act.descargar(url):
+                    messagebox.showinfo("Listo", "Se ha descargado 'ejecutable_NUEVO.py'.\nReemplaza tu archivo actual con este.")
+                    root.destroy()
+                    return # Cerramos para que el usuario use el nuevo
         ruta_plantilla = self.obtener_ruta("plantilla2.xlsx")
         if not os.path.exists(ruta_plantilla):
             messagebox.showerror("Error", f"No se encontró la plantilla en:\n{ruta_plantilla}")
@@ -162,94 +165,91 @@ class ProcesadorNomina:
             root.destroy()
             return
 
-        # Llamada modular al hilo con carga
-        ejecutar_tarea_con_carga(
-            root, 
-            "Procesando Nómina y Fórmulas...", 
-            self.logica_procesamiento, 
-            ruta_carga, 
-            ruta_plantilla, 
-            root
-        )
+        # Modificamos para crear el objeto de carga manualmente y tener control
+        loading = CargaUI(root, "Procesando Nómina y Fórmulas...")
+
+        # Lanzamos la lógica en un hilo pasándole el objeto 'loading'
+        threading.Thread(
+            target=self.logica_procesamiento, 
+            args=(ruta_carga, ruta_plantilla, root, loading),
+            daemon=True
+        ).start()
         
         root.mainloop()
 
-    def logica_procesamiento(self, ruta_carga, ruta_plantilla, root):
-        # 1. CARGA DE DATOS
-        wb_c = load_workbook(ruta_carga, read_only=True, data_only=True)
-        matriz = None
-        for sn in wb_c.sheetnames:
-            ws = wb_c[sn]
-            for r_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=15, values_only=True), 1):
-                if any(self.limpiar(c) == "CEDULA" for c in row if c):
-                    matriz = list(ws.iter_rows(min_row=r_idx, values_only=True))
-                    break
-            if matriz: break
-        wb_c.close()
+    def logica_procesamiento(self, ruta_carga, ruta_plantilla, root, loading):
+        try:
+            # 1. CARGA DE DATOS
+            wb_c = load_workbook(ruta_carga, read_only=True, data_only=True)
+            matriz = None
+            for sn in wb_c.sheetnames:
+                ws = wb_c[sn]
+                for r_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=15, values_only=True), 1):
+                    if any(self.limpiar(c) == "CEDULA" for c in row if c):
+                        matriz = list(ws.iter_rows(min_row=r_idx, values_only=True))
+                        break
+                if matriz: break
+            wb_c.close()
 
-        if not matriz: raise Exception("No se encontró la columna 'CEDULA' en el archivo de carga.")
+            if not matriz: raise Exception("No se encontró la columna 'CEDULA' en el archivo de carga.")
 
-        # 2. MAPEO DE ÍNDICES
-        header_c = matriz[0]
-        idx_c = {self.limpiar(v): i for i, v in enumerate(header_c) if v}
-        
-        wb_p = load_workbook(ruta_plantilla)
-        ws_p = wb_p.active
-        idx_p = {self.limpiar(ws_p.cell(1, c).value): c for c in range(1, ws_p.max_column + 1) if ws_p.cell(1, c).value}
+            # 2. MAPEO DE ÍNDICES
+            header_c = matriz[0]
+            idx_c = {self.limpiar(v): i for i, v in enumerate(header_c) if v}
+            
+            wb_p = load_workbook(ruta_plantilla)
+            ws_p = wb_p.active
+            idx_p = {self.limpiar(ws_p.cell(1, c).value): c for c in range(1, ws_p.max_column + 1) if ws_p.cell(1, c).value}
 
-        # 3. PLAN DE TRABAJO
-        plan_trabajo = []
-        for clave, nombres in MAPEO_COLUMNAS.items():
-            c_orig = idx_c.get(self.limpiar(nombres[0]))
-            c_dest = idx_p.get(self.limpiar(nombres[1]))
-            if c_orig is not None and c_dest is not None:
-                plan_trabajo.append((c_dest, c_orig))
-                ws_p.cell(1, c_dest).fill = self.verde_fill
+            # 3. PLAN DE TRABAJO
+            plan_trabajo = []
+            for clave, nombres in MAPEO_COLUMNAS.items():
+                c_orig = idx_c.get(self.limpiar(nombres[0]))
+                c_dest = idx_p.get(self.limpiar(nombres[1]))
+                if c_orig is not None and c_dest is not None:
+                    plan_trabajo.append((c_dest, c_orig))
+                    ws_p.cell(1, c_dest).fill = self.verde_fill
 
-        # 4. COLUMNAS ESPECIALES
-        col_nombres = idx_p.get(self.limpiar("APELLIDOS Y NOMBRES"))
-        idx_nom_partes = [idx_c.get(self.limpiar(n)) for n in ["1ER APELLIDO", "2DO APELLIDO", "1ER NOMBRE", "2DO NOMBRE"]]
-        
-        formulas = []
-        for c in range(1, ws_p.max_column + 1):
-            h_val = ws_p.cell(1, c).value
-            if h_val and self.limpiar(h_val) in ["FORMULA", "DIFERENCIA"]:
-                f_m = ws_p.cell(2, c).value
-                if f_m and str(f_m).startswith("="):
-                    formulas.append((c, f_m, ws_p.cell(2, c).coordinate))
+            # 4. COLUMNAS ESPECIALES
+            col_nombres = idx_p.get(self.limpiar("APELLIDOS Y NOMBRES"))
+            idx_nom_partes = [idx_c.get(self.limpiar(n)) for n in ["1ER APELLIDO", "2DO APELLIDO", "1ER NOMBRE", "2DO NOMBRE"]]
+            
+            formulas = []
+            for c in range(1, ws_p.max_column + 1):
+                h_val = ws_p.cell(1, c).value
+                if h_val and self.limpiar(h_val) in ["FORMULA", "DIFERENCIA"]:
+                    f_m = ws_p.cell(2, c).value
+                    if f_m and str(f_m).startswith("="):
+                        formulas.append((c, f_m, ws_p.cell(2, c).coordinate))
 
-        # 5. ESCRITURA MASIVA
-        for r_off, fila_v in enumerate(matriz[1:], 3):
-            for cp, cc in plan_trabajo:
-                val = fila_v[cc]
-                header_actual = self.limpiar(ws_p.cell(1, cp).value)
-                
-                if header_actual not in ["CEDULA", "CUENTANOMINA"]:
-                    val = convertir_num_fiel(val)
-                
-                # Tratamiento de Fechas
-                if isinstance(val, datetime): val = val.date()
-                if isinstance(val, (date, datetime)):
-                    ws_p.cell(r_off, cp).number_format = 'DD/MM/YYYY'
-                
-                ws_p.cell(r_off, cp).value = val
+            # 5. ESCRITURA MASIVA
+            for r_off, fila_v in enumerate(matriz[1:], 3):
+                for cp, cc in plan_trabajo:
+                    val = fila_v[cc]
+                    header_actual = self.limpiar(ws_p.cell(1, cp).value)
+                    if header_actual not in ["CEDULA", "CUENTANOMINA"]:
+                        val = convertir_num_fiel(val)
+                    if isinstance(val, datetime): val = val.date()
+                    if isinstance(val, (date, datetime)):
+                        ws_p.cell(r_off, cp).number_format = 'DD/MM/YYYY'
+                    ws_p.cell(r_off, cp).value = val
 
-            # Nombres combinados
-            if col_nombres:
-                partes = [str(fila_v[i]).strip() for i in idx_nom_partes if i is not None and fila_v[i]]
-                ws_p.cell(r_off, col_nombres).value = " ".join(partes).upper()
+                if col_nombres:
+                    partes = [str(fila_v[i]).strip() for i in idx_nom_partes if i is not None and fila_v[i]]
+                    ws_p.cell(r_off, col_nombres).value = " ".join(partes).upper()
 
-            # Traducción de fórmulas
-            for cf, fm, orig in formulas:
-                dest = ws_p.cell(r_off, cf).coordinate
-                ws_p.cell(r_off, cf).value = Translator(fm, origin=orig).translate_formula(dest)
+                for cf, fm, orig in formulas:
+                    dest = ws_p.cell(r_off, cf).coordinate
+                    ws_p.cell(r_off, cf).value = Translator(fm, origin=orig).translate_formula(dest)
 
-        # 6. FINALIZACIÓN (Programamos el guardado en el hilo principal)
-        # Al final de logica_procesamiento:
-        # Pasamos wb_p, root y el objeto loading que creamos al inicio
-        root.after(0, lambda: self.finalizar_proceso(wb_p, root, loading))
-def finalizar_proceso(self, wb_p, root, loading):
-        # 1. Pedimos la ruta (la ventana de carga sigue de fondo)
+            # 6. FINALIZACIÓN
+            root.after(0, lambda: self.finalizar_proceso(wb_p, root, loading))
+
+        except Exception as e:
+            root.after(0, lambda: messagebox.showerror("Error", str(e)))
+            root.after(0, loading.cerrar)
+
+    def finalizar_proceso(self, wb_p, root, loading):
         ruta_s = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
             initialfile=f"Nomina_Procesada_{date.today().strftime('%d_%m_%Y')}",
@@ -258,26 +258,21 @@ def finalizar_proceso(self, wb_p, root, loading):
         )
         
         if ruta_s:
-            # Actualizamos el texto de la carga para dar feedback
-            # Buscamos el Label dentro de la ventana de carga para cambiar el mensaje
+            # Actualizamos mensaje de la carga
             for widget in loading.top.winfo_children():
                 if isinstance(widget, tk.Label):
                     widget.config(text="Escribiendo archivo en disco...\nPor favor, no cierre el programa.")
 
-            # 2. Creamos una función interna para guardar sin congelar la animación
             def guardar_fisicamente():
                 try:
-                    wb_p.save(ruta_s) # <--- Aquí es donde ocurría el "espacio muerto"
-                    
-                    # 3. Ahora que terminó de escribir, cerramos todo en el hilo principal
+                    wb_p.save(ruta_s)
                     root.after(0, lambda: self.cerrar_con_exito(loading, ruta_s, root))
                 except Exception as e:
                     root.after(0, lambda: messagebox.showerror("Error al guardar", str(e)))
+                    root.after(0, loading.cerrar)
 
-            # Lanzamos el guardado en un hilo separado
             threading.Thread(target=guardar_fisicamente, daemon=True).start()
         else:
-            # Si el usuario canceló el guardado
             loading.cerrar()
             root.destroy()
 
