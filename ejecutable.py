@@ -13,6 +13,11 @@ import threading
 from utils import ejecutar_tarea_con_carga, CargaUI
 from actualizador import ActualizadorGitHub
 
+# 1. Detectamos si estamos corriendo como un .exe de PyInstaller
+if hasattr(sys, '_MEIPASS'):
+    # 2. Si es así, le decimos a Python que busque módulos en la carpeta temporal
+    sys.path.append(sys._MEIPASS)
+
 # --- 1. CONFIGURACIÓN DE MAPEO ---
 MAPEO_COLUMNAS = {
     "CEDULA": ["CEDULA", "CEDULA"],
@@ -146,7 +151,14 @@ class ProcesadorNomina:
         
         # El método verificar ahora compara FECHA LOCAL vs FECHA GITHUB
         hay_update, url, v_tag = act.verificar()
-
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        ruta_plantilla = self.obtener_ruta("plantilla2.xlsx")
+        if not os.path.exists(ruta_plantilla):
+            messagebox.showerror("Error", f"No se encontró la plantilla en:\n{ruta_plantilla}")
+            return
+        
         if hay_update:
             if messagebox.askyesno("Actualización Nueva", 
                                    f"Hay una versión más reciente disponible ({v_tag}).\n"
@@ -161,13 +173,6 @@ class ProcesadorNomina:
                 # IMPORTANTE: No seguimos con el resto del programa si hay update
                 root.mainloop() 
                 return
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        ruta_plantilla = self.obtener_ruta("plantilla2.xlsx")
-        if not os.path.exists(ruta_plantilla):
-            messagebox.showerror("Error", f"No se encontró la plantilla en:\n{ruta_plantilla}")
-            return
 
         ruta_carga = filedialog.askopenfilename(title="Seleccionar LIBRO CARGA", parent=root)
         if not ruta_carga:
