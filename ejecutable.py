@@ -31,8 +31,8 @@ MAPEO_COLUMNAS = {
     "F_NAC": ["FECHA NAC.", "FECHA NAC."],
     "BANCO": ["ENTIDAD BANCARIA", "ENTIDAD BANCARIA"],
     "CUENTA": ["CUENTA NOMINA", "CUENTA NOMINA"],
-    "TIPO_EMP": ["TIPO EMPLEADO", "TIPO EMPLEADO"],
     "CTA_ACTIVA": ["CUENTA ACTIVA", "CUENTA ACTIVA"],
+    "TIPO_EMP": ["TIPO EMPLEADO", "TIPO EMPLEADO"],
     "F_INACTIVA": ["FECHA INACTIVACIÓN", "FECHA DE CTA INACTIVA"],
     "P_ANTIG": ["PORC ANTIGUEDAD", "PORC ANTIGUEDAD"],
     "P_ESCAL": ["PORC ESCALAF", "PORC ESCALAF"],
@@ -247,7 +247,23 @@ class ProcesadorNomina:
                         formulas.append((c, f_m, ws_p.cell(2, c).coordinate))
 
             # 5. ESCRITURA MASIVA
+            # --- Escudo 1: Limpieza de datos viejos (respetando fórmulas) ---
+            if ws_p.max_row >= 3:
+                for row in ws_p.iter_rows(min_row=3, max_row=ws_p.max_row):
+                    for cell in row:
+                        # Solo borramos si NO es una fórmula (las fórmulas empiezan por '=')
+                        if cell.value and not str(cell.value).startswith('='):
+                            cell.value = None
+
+            # --- Escudo 2: Filtro de filas basura en la carga ---
+            idx_cedula_carga = idx_c.get(self.limpiar("CEDULA"))
             for r_off, fila_v in enumerate(matriz[1:], 3):
+                # Verificamos si la fila actual tiene una cédula válida
+                cedula_check = str(fila_v[idx_cedula_carga]).strip() if idx_cedula_carga is not None else ""
+                
+                # Si la cédula está vacía, es None o dice "TOTAL", paramos el proceso de esa fila
+                if not cedula_check or cedula_check.lower() in ["none", "", "total", "totales"]:
+                    continue
                 for cp, cc in plan_trabajo:
                     val = fila_v[cc]
                     header_actual = self.limpiar(ws_p.cell(1, cp).value)
