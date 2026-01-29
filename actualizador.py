@@ -4,7 +4,7 @@ import sys
 import datetime
 
 class ActualizadorGitHub:
-        """
+    """
     SISTEMA DE ACTUALIZACIÓN AUTÓNOMA POR LÍNEA DE TIEMPO (CORPOSALUD)
     -----------------------------------------------------------------
     Lógica de funcionamiento:
