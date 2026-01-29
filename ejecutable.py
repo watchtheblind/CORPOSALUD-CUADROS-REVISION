@@ -8,7 +8,7 @@ import re
 import sys
 import threading
 from datetime import datetime, date
-
+import threading
 # Importamos la herramienta de carga desde tu utils.py
 from utils import ejecutar_tarea_con_carga, CargaUI
 
@@ -60,7 +60,7 @@ MAPEO_COLUMNAS = {
     "C140_2_18": ["140.2.18 DOMINGO Y FER. DIURNOS", "140.2.18 DOMINGO Y FER. DIURNOS"],
     "F140_2_18": ["FACTOR DOM Y FER. DIURNOS", "FACTOR DOM Y FER. DIURNOS"],
     "C140_1": ["140.1 DOM Y FER MED", "140.1 DOMINGO Y FERIADO MEDICO"],
-    "F140_1": ["FACTOR DOM Y FER MED", "FACTOR"],
+    #"F140_1": ["FACTOR DOM Y FER MED", "FACTOR"],
     "C120_5_1": ["120.5.1 BONO NOCT. FIJO", "120.5.1 BONO NOCT. FIJO"],
     "C143_4_10": ["143.4.10 BONO NOCT. TEMP", "143.4.10 BONO NOCT. TEMP (6 HRS)"],
     "C143_5": ["143.5 BONO NOCT ADMIN", "143.5 BONO NOCT. 8 H"],
@@ -140,35 +140,6 @@ class ProcesadorNomina:
         root = tk.Tk()
         root.withdraw()
         root.attributes("-topmost", True)
-        # DATOS DE TU REPO
-        VERSION_ESTA_APP = "1.0.0" 
-        USUARIO = "watchtheblind"
-        REPO = "CORPOSALUD-CUADROS-REVISION"
-
-        # Llamamos al detective
-        from actualizador import ActualizadorGitHub
-        act = ActualizadorGitHub(USUARIO, REPO, VERSION_ESTA_APP)
-        hay_update, url, v_nueva = act.verificar()
-        if hay_update:
-            if messagebox.askyesno("Actualización disponible", f"Se encontró la versión {v_nueva}.\n¿Desea descargarla ahora?"):
-                # Mostramos la interfaz de carga para la descarga
-                loading_update = CargaUI(root, f"Descargando versión {v_nueva}...")
-                
-                # Función interna para el hilo de descarga
-                def proceso_descarga():
-                    exito = act.descargar(url, "ejecutable_NUEVO.py")
-                    loading_update.cerrar() # Cerramos la barrita
-                    
-                    if exito:
-                        messagebox.showinfo("Éxito", "Descarga completada.\nReemplaza el archivo actual por 'ejecutable_NUEVO.py' y vuelve a iniciar.")
-                        root.quit()
-                    else:
-                        messagebox.showerror("Error", "No se pudo descargar la actualización.")
-                
-                import threading
-                threading.Thread(target=proceso_descarga, daemon=True).start()
-                root.mainloop() # Mantiene la barrita moviéndose
-                return # Detiene la ejecución de la app vieja
         ruta_plantilla = self.obtener_ruta("plantilla2.xlsx")
         if not os.path.exists(ruta_plantilla):
             messagebox.showerror("Error", f"No se encontró la plantilla en:\n{ruta_plantilla}")
@@ -190,7 +161,36 @@ class ProcesadorNomina:
         ).start()
         
         root.mainloop()
-
+    def procesar_factores_adyacentes(self, ws_p, r_off, cp, cc, fila_v):
+            """
+            Si la columna destino es un concepto que requiere factor, 
+            copia el valor de la columna adyacente derecha del Libro Carga
+            a la columna adyacente derecha de la Plantilla.
+            """
+            # Lista de encabezados que sabemos que tienen un factor a su derecha
+            conceptos_con_factor = [
+                "140.1 DOMINGO Y FERIADO MEDICO",
+                "143.4.10 BONO NOCT. TEMP (6 HRS)",
+                "143.5 BONO NOCT. 8 H",
+                "143.3 BONO NOCTURNO MEDICO (6HORAS)",
+                "143.4 BONO NOCTURNO MEDICO (8HORAS)"
+            ]
+            
+            # Obtenemos el nombre del encabezado en la plantilla para validar
+            header_p = self.limpiar(ws_p.cell(1, cp).value)
+            
+            # Verificamos si este encabezado (limpio) coincide con nuestros conceptos
+            for concepto in conceptos_con_factor:
+                if self.limpiar(concepto) == header_p:
+                    # El factor en Carga está en cc + 1
+                    # El factor en Plantilla está en cp + 1
+                    try:
+                        valor_factor = fila_v[cc + 1]
+                        if valor_factor is not None:
+                            ws_p.cell(row=r_off, column=cp + 1, value=convertir_num_fiel(valor_factor))
+                    except IndexError:
+                        pass # Evita errores si no hay columna a la derecha
+                    break
     def logica_procesamiento(self, ruta_carga, ruta_plantilla, root, loading):
         try:
             # 1. CARGA DE DATOS
@@ -223,6 +223,16 @@ class ProcesadorNomina:
                 if c_orig is not None and c_dest is not None:
                     plan_trabajo.append((c_dest, c_orig))
                     ws_p.cell(1, c_dest).fill = self.verde_fill
+                    header_limpio = self.limpiar(nombres[1])
+                    conceptos_con_factor = [self.limpiar(c) for c in [
+                        "140.1 DOMINGO Y FERIADO MEDICO",
+                        "143.4.10 BONO NOCT. TEMP (6 HRS)",
+                        "143.5 BONO NOCT. 8 H",
+                        "143.3 BONO NOCTURNO MEDICO (6HORAS)",
+                        "143.4 BONO NOCTURNO MEDICO (8HORAS)"
+                    ]]
+                    if header_limpio in conceptos_con_factor:
+                        ws_p.cell(1, c_dest + 1).fill = self.verde_fill
 
             # 4. COLUMNAS ESPECIALES
             col_nombres = idx_p.get(self.limpiar("APELLIDOS Y NOMBRES"))
@@ -247,6 +257,7 @@ class ProcesadorNomina:
                     if isinstance(val, (date, datetime)):
                         ws_p.cell(r_off, cp).number_format = 'DD/MM/YYYY'
                     ws_p.cell(r_off, cp).value = val
+                    self.procesar_factores_adyacentes(ws_p, r_off, cp, cc, fila_v)
 
                 if col_nombres:
                     partes = [str(fila_v[i]).strip() for i in idx_nom_partes if i is not None and fila_v[i]]
