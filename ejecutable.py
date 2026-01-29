@@ -11,6 +11,7 @@ from datetime import datetime, date
 import threading
 # Importamos la herramienta de carga desde tu utils.py
 from utils import ejecutar_tarea_con_carga, CargaUI
+from actualizador import ActualizadorGitHub
 
 # --- 1. CONFIGURACIÓN DE MAPEO ---
 MAPEO_COLUMNAS = {
@@ -137,6 +138,29 @@ class ProcesadorNomina:
         return os.path.join(os.path.abspath("."), archivo)
 
     def ejecutar(self):
+        USUARIO = "watchtheblind"
+        REPO = "CORPOSALUD-CUADROS-REVISION"
+
+        # Instanciamos sin pasarle ninguna versión hardcodeada
+        act = ActualizadorGitHub(USUARIO, REPO)
+        
+        # El método verificar ahora compara FECHA LOCAL vs FECHA GITHUB
+        hay_update, url, v_tag = act.verificar()
+
+        if hay_update:
+            if messagebox.askyesno("Actualización Nueva", 
+                                   f"Hay una versión más reciente disponible ({v_tag}).\n"
+                                   "¿Deseas actualizar el programa ahora?"):
+                
+                # Usamos tu CargaUI para que el usuario vea que algo pasa
+                loading = CargaUI(root, "Descargando e instalando...\nEl programa se reiniciará solo.")
+                
+                # Lanzamos el proceso de reemplazo
+                threading.Thread(target=lambda: act.ejecutar_reemplazo(url), daemon=True).start()
+                
+                # IMPORTANTE: No seguimos con el resto del programa si hay update
+                root.mainloop() 
+                return
         root = tk.Tk()
         root.withdraw()
         root.attributes("-topmost", True)
