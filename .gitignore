@@ -5,7 +5,6 @@ __pycache__/
 
 # C extensions
 *.so
-
 # Distribution / packaging
 .Python
 build/
@@ -35,7 +34,7 @@ MANIFEST
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
-
+.xlsx
 # Unit test / coverage reports
 htmlcov/
 .tox/
